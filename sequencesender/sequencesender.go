@@ -114,6 +114,7 @@ func (s *SequenceSender) tryToSendSequence(ctx context.Context, ticker *time.Tic
 		log.Error("error getting signatures and addresses from the data committee: ", err)
 		return
 	}
+	//remove SignatureAndAddrs and add txId for batches
 	to, data, err := s.etherman.BuildSequenceBatchesTxData(s.cfg.SenderAddress, sequences, s.cfg.L2Coinbase, signaturesAndAddrs)
 	log.Warnf("to %s, data: %s", to, common.Bytes2Hex(data))
 	if err != nil {

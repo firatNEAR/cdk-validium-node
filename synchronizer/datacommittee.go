@@ -69,7 +69,8 @@ func (s *ClientSynchronizer) getBatchL2Data(batchNum uint64, expectedTransaction
 	}
 	return transactionsData, nil
 }
-
+//Modify to get the data from Rust FFI
+//Change expected transaction data coming from the NEAR side
 func (s *ClientSynchronizer) getDataFromCommittee(batchNum uint64, expectedTransactionsHash common.Hash) ([]byte, error) {
 	intialMember := s.selectedCommitteeMember
 	found := false
