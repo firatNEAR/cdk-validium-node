@@ -11,7 +11,7 @@ else
 endif
 GOBASE := $(shell pwd)
 GOBIN := $(GOBASE)/dist
-GOENVVARS := GOBIN=$(GOBIN) CGO_ENABLED=0 GOOS=linux GOARCH=$(ARCH)
+GOENVVARS := GOBIN=$(GOBIN) CGO_ENABLED=1 GOOS=linux GOARCH=$(ARCH)
 GOBINARY := cdk-validium-node
 GOCMD := $(GOBASE)/cmd
 
@@ -31,11 +31,12 @@ GENERATE_DOC_TEMPLATES_PATH=  "docs/config-file/templates/"
 
 .PHONY: build
 build: ## Builds the binary locally into ./dist
-	$(GOENVVARS) go build -ldflags "all=$(LDFLAGS)" -o $(GOBIN)/$(GOBINARY) $(GOCMD)
+	$(GOENVVARS) go build -buildvcs=false -ldflags "all=$(LDFLAGS)" -o $(GOBIN)/$(GOBINARY) $(GOCMD)
 
 .PHONY: build-docker
 build-docker: ## Builds a docker image with the node binary
-	docker build -t cdk-validium-node -f ./Dockerfile .
+	cp -rf ../../op-stack/da-rpc ./da-rpc 
+	docker build -t cdk-validium-node -f ./Dockerfile . ||	rm -rf ./da-rpc
 
 .PHONY: build-docker-nc
 build-docker-nc: ## Builds a docker image with the node binary - but without build cache

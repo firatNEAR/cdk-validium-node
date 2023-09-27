@@ -10,6 +10,7 @@ import (
 
 	"github.com/0xPolygon/cdk-validium-node/hex"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -919,7 +920,7 @@ func (p *PostgresStorage) GetTxsHashesByBatchNumber(ctx context.Context, batchNu
 func (p *PostgresStorage) AddVirtualBatch(ctx context.Context, virtualBatch *VirtualBatch, dbTx pgx.Tx) error {
 	const addVirtualBatchSQL = "INSERT INTO state.virtual_batch (batch_num, tx_hash, coinbase, block_num, sequencer_addr) VALUES ($1, $2, $3, $4, $5)"
 	e := p.getExecQuerier(dbTx)
-	_, err := e.Exec(ctx, addVirtualBatchSQL, virtualBatch.BatchNumber, virtualBatch.TxHash.String(), virtualBatch.Coinbase.String(), virtualBatch.BlockNumber, virtualBatch.SequencerAddr.String())
+	_, err := e.Exec(ctx, addVirtualBatchSQL, virtualBatch.BatchNumber, hexutil.Encode(virtualBatch.TxHash[:]), virtualBatch.Coinbase.String(), virtualBatch.BlockNumber, virtualBatch.SequencerAddr.String())
 	return err
 }
 
@@ -946,7 +947,7 @@ func (p *PostgresStorage) GetVirtualBatch(ctx context.Context, batchNumber uint6
 	}
 	virtualBatch.Coinbase = common.HexToAddress(coinbase)
 	virtualBatch.SequencerAddr = common.HexToAddress(sequencerAddr)
-	virtualBatch.TxHash = common.HexToHash(txHash)
+	virtualBatch.TxHash = common.HexToHash(txHash).Bytes()
 	return &virtualBatch, nil
 }
 

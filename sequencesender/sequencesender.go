@@ -15,6 +15,8 @@ import (
 	"github.com/0xPolygon/cdk-validium-node/state"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgx/v4"
+
+	near "github.com/near/rollup-data-availability/near-da-rpc"
 )
 
 const (
@@ -37,10 +39,18 @@ type SequenceSender struct {
 	ethTxManager ethTxManager
 	etherman     etherman
 	eventLog     *event.EventLog
+	daClient     *near.Config
 }
 
 // New inits sequence sender
 func New(cfg Config, state stateInterface, etherman etherman, manager ethTxManager, eventLog *event.EventLog, privKey *ecdsa.PrivateKey) (*SequenceSender, error) {
+	log.Info("initializing sequence sender")
+	log.Info("Initializing NEAR client: ", cfg.DaAccount)
+	daConfig, err := near.NewConfig(cfg.DaAccount, cfg.DaContract, cfg.DaKey, cfg.DaNamespaceId)
+	if err != nil {
+		return nil, err
+	}
+
 	return &SequenceSender{
 		cfg:          cfg,
 		state:        state,
@@ -48,6 +58,7 @@ func New(cfg Config, state stateInterface, etherman etherman, manager ethTxManag
 		ethTxManager: manager,
 		eventLog:     eventLog,
 		privKey:      privKey,
+		daClient:     daConfig,
 	}, nil
 }
 
@@ -82,7 +93,7 @@ func (s *SequenceSender) tryToSendSequence(ctx context.Context, ticker *time.Tic
 	}
 
 	// Check if should send sequence to L1
-	log.Infof("getting sequences to send")
+	//log.Infof("getting sequences to send")
 	sequences, err := s.getSequencesToSend(ctx)
 	if err != nil || len(sequences) == 0 {
 		if err != nil {
@@ -109,24 +120,25 @@ func (s *SequenceSender) tryToSendSequence(ctx context.Context, ticker *time.Tic
 	metrics.SequencesSentToL1(float64(sequenceCount))
 
 	// add sequence to be monitored
-	signaturesAndAddrs, err := s.getSignaturesAndAddrsFromDataCommittee(ctx, sequences)
+	maybeFrameRef, err := s.getSignaturesAndAddrsFromDataCommittee(ctx, sequences)
 	if err != nil {
-		log.Error("error getting signatures and addresses from the data committee: ", err)
+		log.Error("Error Submitting with NEAR: ", err)
 		return
 	}
-	//remove SignatureAndAddrs and add txId for batches
-	to, data, err := s.etherman.BuildSequenceBatchesTxData(s.cfg.SenderAddress, sequences, s.cfg.L2Coinbase, signaturesAndAddrs)
+	to, data, err := s.etherman.BuildSequenceBatchesTxData(s.cfg.SenderAddress, sequences, s.cfg.L2Coinbase, maybeFrameRef)
 	log.Warnf("to %s, data: %s", to, common.Bytes2Hex(data))
 	if err != nil {
 		log.Error("error estimating new sequenceBatches to add to eth tx manager: ", err)
 		return
 	}
+
 	firstSequence := sequences[0]
 	lastSequence := sequences[len(sequences)-1]
 	monitoredTxID := fmt.Sprintf(monitoredIDFormat, firstSequence.BatchNumber, lastSequence.BatchNumber)
 	err = s.ethTxManager.Add(ctx, ethTxManagerOwner, monitoredTxID, s.cfg.SenderAddress, to, nil, data, nil)
+
 	if err != nil {
-		log.Error("error to add sequences tx to eth tx manager: ", err)
+		log.Error("error to send sequence batches to NEAR: ", err)
 		return
 	}
 }
@@ -199,7 +211,7 @@ func (s *SequenceSender) getSequencesToSend(ctx context.Context) ([]types.Sequen
 
 	// Reached latest batch. Decide if it's worth to send the sequence, or wait for new batches
 	if len(sequences) == 0 {
-		log.Info("no batches to be sequenced")
+		//log.Info("no batches to be sequenced")
 		return nil, nil
 	}
 

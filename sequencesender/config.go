@@ -24,4 +24,10 @@ type Config struct {
 	PrivateKey types.KeystoreFileConfig `mapstructure:"PrivateKey"`
 	// Batch number where there is a forkid change (fork upgrade)
 	ForkUpgradeBatchNumber uint64
+
+	// Data availability configs
+	DaAccount     string `mapstructure:"DaAccount"`
+	DaContract    string `mapstructure:"DaContract"`
+	DaKey         string `mapstructure:"DaKey"`
+	DaNamespaceId uint32 `mapstructure:"DaNamespaceId"`
 }

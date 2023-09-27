@@ -1,4 +1,4 @@
-DOCKERCOMPOSE := docker-compose -f docker-compose.yml
+DOCKERCOMPOSE := docker compose -f docker-compose.yml
 DOCKERCOMPOSEAPPSEQ := cdk-validium-sequencer
 DOCKERCOMPOSEAPPSEQSENDER := cdk-validium-sequence-sender
 DOCKERCOMPOSEAPPL2GASP := cdk-validium-l2gaspricer

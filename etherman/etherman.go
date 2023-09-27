@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -540,7 +541,7 @@ func (etherMan *Client) BuildSequenceBatchesTxData(
 	sender common.Address,
 	sequences []ethmanTypes.Sequence,
 	l2Coinbase common.Address,
-	committeeSignaturesAndAddrs []byte,
+	frameRef []byte,
 ) (to *common.Address, data []byte, err error) {
 	opts, err := etherMan.getAuthByAddress(sender)
 	if err == ErrNotFound {
@@ -552,7 +553,7 @@ func (etherMan *Client) BuildSequenceBatchesTxData(
 	opts.GasLimit = uint64(1)
 	opts.GasPrice = big.NewInt(1)
 
-	tx, err := etherMan.sequenceBatches(opts, sequences, l2Coinbase, committeeSignaturesAndAddrs)
+	tx, err := etherMan.sequenceBatches(opts, sequences, l2Coinbase, frameRef)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -564,7 +565,7 @@ func (etherMan *Client) sequenceBatches(
 	opts bind.TransactOpts,
 	sequences []ethmanTypes.Sequence,
 	l2Coinbase common.Address,
-	committeeSignaturesAndAddrs []byte,
+	frameRef []byte,
 ) (*types.Transaction, error) {
 	var batches []cdkvalidium.CDKValidiumBatchData
 	for _, seq := range sequences {
@@ -578,14 +579,15 @@ func (etherMan *Client) sequenceBatches(
 		batches = append(batches, batch)
 	}
 
-	tx, err := etherMan.CDKValidium.SequenceBatches(&opts, batches, l2Coinbase, committeeSignaturesAndAddrs)
+	// TODO: make sure this contract actually takes a frameRef!
+	tx, err := etherMan.CDKValidium.SequenceBatches(&opts, batches, l2Coinbase, frameRef)
 	if err != nil {
 		if parsedErr, ok := tryParseError(err); ok {
 			err = parsedErr
 		}
 		err = fmt.Errorf(
 			"error sequencing batches: %w, committeeSignaturesAndAddrs %s",
-			err, common.Bytes2Hex(committeeSignaturesAndAddrs),
+			err, common.Bytes2Hex(frameRef),
 		)
 	}
 
@@ -744,6 +746,7 @@ func (etherMan *Client) forcedBatchEvent(ctx context.Context, vLog types.Log, bl
 
 func (etherMan *Client) sequencedBatchesEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
 	log.Debug("SequenceBatches event detected")
+	// FIXME: this will fail since we will have an additional field in the event and that should be emitted by the contract.
 	sb, err := etherMan.CDKValidium.ParseSequenceBatches(vLog)
 	if err != nil {
 		return err
@@ -759,7 +762,13 @@ func (etherMan *Client) sequencedBatchesEvent(ctx context.Context, vLog types.Lo
 	if err != nil {
 		return err
 	}
-	sequences, err := decodeSequences(tx.Data(), sb.NumBatch, msg.From, vLog.TxHash, msg.Nonce)
+
+	var hashToCheck = vLog.TxHash[:]
+	if !reflect.DeepEqual(sb.Commitment, make([]byte, 64)) {
+		// Here is there we differ from L2, we will take the Data from the log emitted by the contract containing our [tx_id ++ commitment].
+		hashToCheck = sb.Commitment
+	}
+	sequences, err := decodeSequences(tx.Data(), sb.NumBatch, msg.From, hashToCheck, msg.Nonce)
 	if err != nil {
 		return fmt.Errorf("error decoding the sequences: %v", err)
 	}
@@ -786,7 +795,7 @@ func (etherMan *Client) sequencedBatchesEvent(ctx context.Context, vLog types.Lo
 	return nil
 }
 
-func decodeSequences(txData []byte, lastBatchNumber uint64, sequencer common.Address, txHash common.Hash, nonce uint64) ([]SequencedBatch, error) {
+func decodeSequences(txData []byte, lastBatchNumber uint64, sequencer common.Address, txHash []byte, nonce uint64) ([]SequencedBatch, error) {
 	// Extract coded txs.
 	// Load contract ABI
 	abi, err := abi.JSON(strings.NewReader(cdkvalidium.CdkvalidiumABI))
@@ -888,7 +897,12 @@ func (etherMan *Client) forceSequencedBatchesEvent(ctx context.Context, vLog typ
 	if err != nil {
 		return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
 	}
-	sequencedForceBatch, err := decodeSequencedForceBatches(tx.Data(), fsb.NumBatch, msg.From, vLog.TxHash, fullBlock, msg.Nonce)
+	var hashToCheck = vLog.TxHash[:]
+	if !reflect.DeepEqual(fsb.Commitment, make([]byte, 64)) {
+		// Here is there we differ from L2, we will take the Data from the log emitted by the contract containing our [tx_id ++ commitment].
+		hashToCheck = fsb.Commitment
+	}
+	sequencedForceBatch, err := decodeSequencedForceBatches(tx.Data(), fsb.NumBatch, msg.From, hashToCheck, fullBlock, msg.Nonce)
 	if err != nil {
 		return err
 	}
@@ -912,7 +926,7 @@ func (etherMan *Client) forceSequencedBatchesEvent(ctx context.Context, vLog typ
 	return nil
 }
 
-func decodeSequencedForceBatches(txData []byte, lastBatchNumber uint64, sequencer common.Address, txHash common.Hash, block *types.Block, nonce uint64) ([]SequencedForceBatch, error) {
+func decodeSequencedForceBatches(txData []byte, lastBatchNumber uint64, sequencer common.Address, txHash []byte, block *types.Block, nonce uint64) ([]SequencedForceBatch, error) {
 	// Extract coded txs.
 	// Load contract ABI
 	abi, err := abi.JSON(strings.NewReader(cdkvalidium.CdkvalidiumABI))
@@ -1119,6 +1133,7 @@ func (etherMan *Client) SuggestedGasPrice(ctx context.Context) (*big.Int, error)
 
 // EstimateGas returns the estimated gas for the tx
 func (etherMan *Client) EstimateGas(ctx context.Context, from common.Address, to *common.Address, value *big.Int, data []byte) (uint64, error) {
+	log.Debugf("Estimating gas for tx. From: %s, To: %s, Value: %s, Data: %s", from.String(), to.String(), value.String(), common.Bytes2Hex(data))
 	return etherMan.EthClient.EstimateGas(ctx, ethereum.CallMsg{
 		From:  from,
 		To:    to,

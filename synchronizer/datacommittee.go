@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/big"
 	"math/rand"
+	"reflect"
 
 	"github.com/0xPolygon/cdk-validium-node/log"
 	"github.com/0xPolygon/cdk-validium-node/state"
@@ -29,7 +30,10 @@ func (s *ClientSynchronizer) loadCommittee() error {
 	return nil
 }
 
-func (s *ClientSynchronizer) getBatchL2Data(batchNum uint64, expectedTransactionsHash common.Hash) ([]byte, error) {
+// Here we cover expectedTransactionsHash being either:
+// 1. the composite hash for NEAR da [tx_id ++ commitment] (64bytes)
+// 2. the transaction hash for ethereum
+func (s *ClientSynchronizer) getBatchL2Data(batchNum uint64, expectedTransactionsHash []byte) ([]byte, error) {
 	found := true
 	transactionsData, err := s.state.GetBatchL2DataByNumber(s.ctx, batchNum, nil)
 	if err != nil {
@@ -40,14 +44,15 @@ func (s *ClientSynchronizer) getBatchL2Data(batchNum uint64, expectedTransaction
 		}
 	}
 	actualTransactionsHash := crypto.Keccak256Hash(transactionsData)
-	if !found || expectedTransactionsHash != actualTransactionsHash {
+	if !found || !reflect.DeepEqual(expectedTransactionsHash, actualTransactionsHash.Bytes()) {
 		if found {
 			log.Warnf(unexpectedHashTemplate, batchNum, expectedTransactionsHash, actualTransactionsHash)
 		}
 
 		if !s.isTrustedSequencer {
 			log.Info("trying to get data from trusted sequencer")
-			data, err := s.getDataFromTrustedSequencer(batchNum, expectedTransactionsHash)
+			// TODO[optimisation]: shortcut read from NEAR first
+			data, err := s.getDataFromTrustedSequencer(batchNum, common.BytesToHash(expectedTransactionsHash))
 			if err != nil {
 				log.Error(err)
 			} else {
@@ -69,48 +74,53 @@ func (s *ClientSynchronizer) getBatchL2Data(batchNum uint64, expectedTransaction
 	}
 	return transactionsData, nil
 }
-//Modify to get the data from Rust FFI
-//Change expected transaction data coming from the NEAR side
-func (s *ClientSynchronizer) getDataFromCommittee(batchNum uint64, expectedTransactionsHash common.Hash) ([]byte, error) {
+
+// TODO: Change expected transaction data coming from the NEAR side
+func (s *ClientSynchronizer) getDataFromCommittee(batchNum uint64, expectedTransactionsHash []byte) ([]byte, error) {
 	intialMember := s.selectedCommitteeMember
 	found := false
-	for !found && intialMember != -1 {
-		member := s.committeeMembers[s.selectedCommitteeMember]
-		log.Infof("trying to get data from %s at %s", member.Addr.Hex(), member.URL)
-		c := s.dataCommitteeClientFactory.New(member.URL)
-		data, err := c.GetOffChainData(s.ctx, expectedTransactionsHash)
-		if err != nil {
-			log.Warnf(
-				"error getting data from DAC node %s at %s: %s",
-				member.Addr.Hex(), member.URL, err,
-			)
-			s.selectedCommitteeMember = (s.selectedCommitteeMember + 1) % len(s.committeeMembers)
-			if s.selectedCommitteeMember == intialMember {
-				break
+	// First try to read from NEAR
+	data, err := s.daClient.Get(expectedTransactionsHash, uint32(batchNum))
+	if err != nil {
+		for !found && intialMember != -1 {
+			member := s.committeeMembers[s.selectedCommitteeMember]
+			log.Infof("trying to get data from %s at %s", member.Addr.Hex(), member.URL)
+			if err != nil {
+				log.Warnf(
+					"error getting data from DAC node %s at %s: %s",
+					member.Addr.Hex(), member.URL, err,
+				)
+				s.selectedCommitteeMember = (s.selectedCommitteeMember + 1) % len(s.committeeMembers)
+				if s.selectedCommitteeMember == intialMember {
+					break
+				}
+				continue
 			}
-			continue
-		}
-		actualTransactionsHash := crypto.Keccak256Hash(data)
-		if actualTransactionsHash != expectedTransactionsHash {
-			unexpectedHash := fmt.Errorf(
-				unexpectedHashTemplate, batchNum, expectedTransactionsHash, actualTransactionsHash,
-			)
-			log.Warnf(
-				"error getting data from DAC node %s at %s: %s",
-				member.Addr.Hex(), member.URL, unexpectedHash,
-			)
-			s.selectedCommitteeMember = (s.selectedCommitteeMember + 1) % len(s.committeeMembers)
-			if s.selectedCommitteeMember == intialMember {
-				break
+			actualTransactionsHash := crypto.Keccak256Hash(data)
+			if !reflect.DeepEqual(actualTransactionsHash.Bytes(), expectedTransactionsHash) {
+				unexpectedHash := fmt.Errorf(
+					unexpectedHashTemplate, batchNum, expectedTransactionsHash, actualTransactionsHash,
+				)
+				log.Warnf(
+					"error getting data from DAC node %s at %s: %s",
+					member.Addr.Hex(), member.URL, unexpectedHash,
+				)
+				s.selectedCommitteeMember = (s.selectedCommitteeMember + 1) % len(s.committeeMembers)
+				if s.selectedCommitteeMember == intialMember {
+					break
+				}
+				continue
 			}
-			continue
+			return data, nil
 		}
+		if err := s.loadCommittee(); err != nil {
+			return nil, fmt.Errorf("error loading data committee: %s", err)
+		}
+		return nil, fmt.Errorf("couldn't get the data from any committee member")
+	} else {
+		log.Infof("Got data from NEAR")
 		return data, nil
 	}
-	if err := s.loadCommittee(); err != nil {
-		return nil, fmt.Errorf("error loading data committee: %s", err)
-	}
-	return nil, fmt.Errorf("couldn't get the data from any committee member")
 }
 
 func (s *ClientSynchronizer) getDataFromTrustedSequencer(batchNum uint64, expectedTransactionsHash common.Hash) ([]byte, error) {

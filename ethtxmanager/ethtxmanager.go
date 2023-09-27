@@ -260,7 +260,9 @@ func (c *Client) monitorTxs(ctx context.Context) error {
 		return fmt.Errorf("failed to get created monitored txs: %v", err)
 	}
 
-	log.Infof("found %v monitored tx to process", len(mTxs))
+	if len(mTxs) > 0 {
+		log.Infof("found %v monitored tx to process", len(mTxs))
+	}
 
 	for _, mTx := range mTxs {
 		mTx := mTx // force variable shadowing to avoid pointer conflicts

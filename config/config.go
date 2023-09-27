@@ -116,6 +116,15 @@ type Config struct {
 	EventLog event.Config
 	// Configuration of the hash database connection
 	HashDB db.Config
+	Da 		DaConfig
+}
+
+type DaConfig struct {
+	// Data availability configs
+	Account     string `mapstructure:"Account"`
+	Contract    string `mapstructure:"Contract"`
+	Key         string `mapstructure:"Key"`
+	NamespaceId uint32 `mapstructure:"NamespaceId"`
 }
 
 // Default parses the default configuration values.

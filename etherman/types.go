@@ -33,7 +33,7 @@ type GlobalExitRoot struct {
 type SequencedBatch struct {
 	BatchNumber   uint64
 	SequencerAddr common.Address
-	TxHash        common.Hash
+	TxHash        []byte
 	Nonce         uint64
 	Coinbase      common.Address
 	cdkvalidium.CDKValidiumBatchData
@@ -62,7 +62,7 @@ type VerifiedBatch struct {
 type SequencedForceBatch struct {
 	BatchNumber uint64
 	Coinbase    common.Address
-	TxHash      common.Hash
+	TxHash      []byte 
 	Timestamp   time.Time
 	Nonce       uint64
 	cdkvalidium.CDKValidiumForcedBatchData

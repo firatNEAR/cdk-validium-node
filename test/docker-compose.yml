@@ -70,6 +70,8 @@ services:
       - CDK_VALIDIUM_NODE_STATEDB_HOST=cdk-validium-state-db
       - CDK_VALIDIUM_NODE_POOL_DB_HOST=cdk-validium-pool-db
       - CDK_VALIDIUM_NODE_SEQUENCER_SENDER_ADDRESS=0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266
+    env_file:
+      - ../.env
     volumes:
       - ./sequencer.keystore:/pk/sequencer.keystore
       - ./config/test.node.config.toml:/app/config.toml
@@ -119,6 +121,8 @@ services:
     image: cdk-validium-node
     environment:
       - CDK_VALIDIUM_NODE_STATEDB_HOST=cdk-validium-state-db
+    env_file:
+      - ../.env        
     volumes:
       - ./config/test.node.config.toml:/app/config.toml
       - ./config/test.genesis.config.json:/app/genesis.json
@@ -308,7 +312,8 @@ services:
 
   cdk-validium-mock-l1-network:
     container_name: cdk-validium-mock-l1-network
-    image: hermeznetwork/geth-cdk-validium-contracts:v0.0.1
+    image: us-docker.pkg.dev/pagoda-solutions-dev/rollup-data-availability/cdk-validium-contracts:latest
+      #image: hermeznetwork/geth-cdk-validium-contracts:v0.0.1
     ports:
       - 8545:8545
       - 8546:8546

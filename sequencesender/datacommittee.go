@@ -2,14 +2,12 @@ package sequencesender
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
-	"unsafe"
 
 	"github.com/0xPolygon/cdk-data-availability/batch"
-	"github.com/near/rollup-data-availability/near-da-rpc"
 	"github.com/0xPolygon/cdk-data-availability/client"
 	"github.com/0xPolygon/cdk-data-availability/sequence"
 	ethman "github.com/0xPolygon/cdk-validium-node/etherman"
@@ -27,7 +25,6 @@ type signatureMsg struct {
 
 // TODO: Rust FFI Client submit_batch
 // Remove comittee parallel calls
-// Sequences into Blob structure
 func (s *SequenceSender) getSignaturesAndAddrsFromDataCommittee(ctx context.Context, sequences []types.Sequence) ([]byte, error) {
 	// Get current committee
 	// committee, err := s.etherman.GetCurrentDataCommittee()
@@ -59,65 +56,49 @@ func (s *SequenceSender) getSignaturesAndAddrsFromDataCommittee(ctx context.Cont
 			L2Data:         seq.BatchL2Data,
 		})
 	}
-
-	maybeFrameRef := C.submit_batch(s.daClient, candidateHex, (*C.uint8_t)(txBytes), C.size_t(len(candidate.TxData)))
-	s.l.Info("Submitting to NEAR maybeFrameData",
-		"maybeFrameData", maybeFrameRef,
-		"candidate", candidate.To.Hex(),
-		"candidatestring", candidate.To.String(),
-		"namespace", s.namespace,
-		"txData", C.CBytes(candidate.TxData),
-		"txLen", C.size_t(len(candidate.TxData)),
-	)
-	errData := C.get_error()
-	if errData != nil {
-		errStr := C.GoString(errData)
-		m.l.Error("unable to submit to NEAR", "err", errStr)
-	}
-	if maybeFrameRef.len > 1 {
-		// Set the tx data to a frame reference
-		bytes := C.GoBytes(unsafe.Pointer(maybeFrameRef.data), C.int(maybeFrameRef.len))
-		candidate.TxData = bytes
-		m.l.Info("candidate.TxData after NEAR enrichment", "candidate.TxData", candidate.TxData)
-	} else {
-		m.l.Warn("no frame reference returned from NEAR, falling back to ethereum")
-	}
 	signedSequence, err := sequence.Sign(s.privKey)
 	if err != nil {
 		return nil, err
 	}
 
+	json, err := json.Marshal(signedSequence)
+	if err != nil {
+		return nil, err
+	}
+	maybeFrameRef, err := s.daClient.ForceSubmit(json)
+	if err != nil {
+		return nil, err
+	}
 	// Request signatures to all members in parallel
 	// ch := make(chan signatureMsg, len(committee.Members))
 	// signatureCtx, cancelSignatureCollection := context.WithCancel(ctx)
 	// for _, member := range committee.Members {
 	// 	go requestSignatureFromMember(signatureCtx, *signedSequence, member, ch)
 	// }
-
 	// Collect signatures
-	msgs := []signatureMsg{}
-	var collectedSignatures uint64
-	var failedToCollect uint64
-	for collectedSignatures < committee.RequiredSignatures {
-		msg := <-ch
-		if msg.err != nil {
-			log.Errorf("error when trying to get signature from %s: %s", msg.addr, msg.err)
-			failedToCollect++
-			if len(committee.Members)-int(failedToCollect) < int(committee.RequiredSignatures) {
-				cancelSignatureCollection()
-				return nil, errors.New("too many members failed to send their signature")
-			}
-		} else {
-			log.Infof("received signature from %s", msg.addr)
-			collectedSignatures++
-		}
-		msgs = append(msgs, msg)
-	}
+	// msgs := []signatureMsg{}
+	// var collectedSignatures uint64
+	// var failedToCollect uint64
+	// for collectedSignatures < committee.RequiredSignatures {
+	// 	msg := <-ch
+	// 	if msg.err != nil {
+	// 		log.Errorf("error when trying to get signature from %s: %s", msg.addr, msg.err)
+	// 		failedToCollect++
+	// 		if len(committee.Members)-int(failedToCollect) < int(committee.RequiredSignatures) {
+	// 			cancelSignatureCollection()
+	// 			return nil, errors.New("too many members failed to send their signature")
+	// 		}
+	// 	} else {
+	// 		log.Infof("received signature from %s", msg.addr)
+	// 		collectedSignatures++
+	// 	}
+	// 	msgs = append(msgs, msg)
+	// }
+	//
+	// // Stop requesting as soon as we have N valid signatures
+	// cancelSignatureCollection()
 
-	// Stop requesting as soon as we have N valid signatures
-	cancelSignatureCollection()
-
-	return buildSignaturesAndAddrs(signatureMsgs(msgs), committee.Members), nil
+	return maybeFrameRef, nil
 }
 
 func requestSignatureFromMember(ctx context.Context, signedSequence sequence.SignedSequence, member ethman.DataCommitteeMember, ch chan signatureMsg) {

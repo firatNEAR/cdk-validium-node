@@ -101,6 +101,10 @@ LastBatchVirtualizationTimeMaxWaitPeriod = "10s"
 MaxTxSizeForL1 = 131072
 L2Coinbase = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
 PrivateKey = {Path = "/pk/sequencer.keystore", Password = "testonly"}
+DaAccount = "test.testnet"
+DaContract = "contract.test.testnet"
+DaKey = "ed25519:bogusness"
+DaNamespaceId = 99999
 
 [Aggregator]
 Host = "0.0.0.0"
@@ -161,3 +165,9 @@ Host = "cdk-validium-state-db"
 Port = "5432"
 EnableLog = false
 MaxConns = 200
+
+[Da]
+Account = "test.testnet"
+Contract = "contract.test.testnet"
+Key = "ed25519:bogusness"
+NamespaceId = 99999

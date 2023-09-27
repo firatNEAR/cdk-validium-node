@@ -141,7 +141,7 @@ func (s *State) SetGenesis(ctx context.Context, block Block, genesis Genesis, db
 	// mark the genesis batch as virtualized
 	virtualBatch := &VirtualBatch{
 		BatchNumber: batch.BatchNumber,
-		TxHash:      ZeroHash,
+		TxHash:      ZeroHash.Bytes(),
 		Coinbase:    ZeroAddress,
 		BlockNumber: block.BlockNumber,
 	}

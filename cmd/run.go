@@ -296,6 +296,13 @@ func runSynchronizer(cfg config.Config, etherman *etherman.Client, ethTxManager 
 	}
 	zkEVMClient := client.NewClient(trustedSequencerURL)
 
+	cfg.Synchronizer.DaAccount = cfg.Da.Account
+	cfg.Synchronizer.DaContract = cfg.Da.Contract
+	cfg.Synchronizer.DaKey = cfg.Da.Key
+	cfg.Synchronizer.DaNamespaceId = cfg.Da.NamespaceId
+	log.Info("Initializing NEAR client config", cfg.Synchronizer.DaAccount, cfg.Synchronizer.DaContract, cfg.Synchronizer.DaNamespaceId)
+
+
 	sy, err := synchronizer.NewSynchronizer(
 		cfg.IsTrustedSequencer, etherman, st, pool, ethTxManager,
 		zkEVMClient, eventLog, cfg.NetworkConfig.Genesis, cfg.Synchronizer,
@@ -400,6 +407,11 @@ func createSequenceSender(cfg config.Config, pool *pool.Pool, etmStorage *ethtxm
 	cfg.SequenceSender.SenderAddress = auth.From
 
 	cfg.SequenceSender.ForkUpgradeBatchNumber = cfg.ForkUpgradeBatchNumber
+
+	cfg.SequenceSender.DaAccount = cfg.Da.Account
+	cfg.SequenceSender.DaContract = cfg.Da.Contract
+	cfg.SequenceSender.DaKey = cfg.Da.Key
+	cfg.SequenceSender.DaNamespaceId = cfg.Da.NamespaceId
 
 	ethTxManager := ethtxmanager.New(cfg.EthTxManager, etherman, etmStorage, st)
 

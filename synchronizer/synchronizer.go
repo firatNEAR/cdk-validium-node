@@ -21,6 +21,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethTypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/jackc/pgx/v4"
+
+	near "github.com/near/rollup-data-availability/near-da-rpc"
 )
 
 const (
@@ -49,6 +51,7 @@ type ClientSynchronizer struct {
 	cancelCtx                context.CancelFunc
 	genesis                  state.Genesis
 	cfg                      Config
+	daClient                 *near.Config
 	trustedState             struct {
 		lastTrustedBatches []*state.Batch
 		lastStateRoot      *common.Hash
@@ -81,6 +84,13 @@ func NewSynchronizer(
 	ctx, cancel := context.WithCancel(context.Background())
 	metrics.Register()
 
+	log.Info("Initializing NEAR client")
+	daConfig, err := near.NewConfig(cfg.DaAccount, cfg.DaContract, cfg.DaKey, cfg.DaNamespaceId)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+
 	c := &ClientSynchronizer{
 		isTrustedSequencer:         isTrustedSequencer,
 		state:                      st,
@@ -96,9 +106,10 @@ func NewSynchronizer(
 		proverID:                   "",
 		previousExecutorFlushID:    0,
 		dataCommitteeClientFactory: clientFactory,
+		daClient:                   daConfig,
 	}
-	err := c.loadCommittee()
-	return c, err
+	cerr := c.loadCommittee()
+	return c, cerr
 }
 
 var waitDuration = time.Duration(0)
@@ -805,7 +816,10 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 		return nil
 	}
 	for _, sbatch := range sequencedBatches {
-		batchL2Data, err := s.getBatchL2Data(sbatch.BatchNumber, sbatch.TransactionsHash)
+		// FIXME: this will fail because sbatch isn't right
+		//batchL2Data, err := s.getBatchL2Data(sbatch.BatchNumber, sbatch.TransactionsHash[:])
+		// TODO: might this work instead?
+		batchL2Data, err := s.getBatchL2Data(sbatch.BatchNumber, sbatch.TxHash)
 		if err != nil {
 			return err
 		}
