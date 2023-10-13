@@ -13,7 +13,6 @@ import (
 	"github.com/0xPolygon/cdk-validium-node/log"
 	"github.com/0xPolygon/cdk-validium-node/sequencer/metrics"
 	"github.com/0xPolygon/cdk-validium-node/state"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgx/v4"
 
 	near "github.com/near/rollup-data-availability/near-da-rpc"
@@ -33,13 +32,14 @@ var (
 
 // SequenceSender represents a sequence sender
 type SequenceSender struct {
-	cfg          Config
-	privKey      *ecdsa.PrivateKey
-	state        stateInterface
-	ethTxManager ethTxManager
-	etherman     etherman
-	eventLog     *event.EventLog
-	daClient     *near.Config
+	cfg                 Config
+	privKey             *ecdsa.PrivateKey
+	state               stateInterface
+	ethTxManager        ethTxManager
+	etherman            etherman
+	eventLog            *event.EventLog
+	daClient            *near.Config
+	daRecoveredFrameRef *[]byte
 }
 
 // New inits sequence sender
@@ -52,13 +52,14 @@ func New(cfg Config, state stateInterface, etherman etherman, manager ethTxManag
 	}
 
 	return &SequenceSender{
-		cfg:          cfg,
-		state:        state,
-		etherman:     etherman,
-		ethTxManager: manager,
-		eventLog:     eventLog,
-		privKey:      privKey,
-		daClient:     daConfig,
+		cfg:                 cfg,
+		state:               state,
+		etherman:            etherman,
+		ethTxManager:        manager,
+		eventLog:            eventLog,
+		privKey:             privKey,
+		daClient:            daConfig,
+		daRecoveredFrameRef: nil,
 	}, nil
 }
 
@@ -119,14 +120,19 @@ func (s *SequenceSender) tryToSendSequence(ctx context.Context, ticker *time.Tic
 	)
 	metrics.SequencesSentToL1(float64(sequenceCount))
 
-	// add sequence to be monitored
-	maybeFrameRef, err := s.getSignaturesAndAddrsFromDataCommittee(ctx, sequences)
-	if err != nil {
-		log.Error("Error Submitting with NEAR: ", err)
-		return
+	// Try to recover an already submitted frame reference
+	var frameRef = s.daRecoveredFrameRef
+	if frameRef == nil {
+		maybeFrameRef, err := s.getSignaturesAndAddrsFromDataCommittee(ctx, sequences)
+		if err != nil || len(maybeFrameRef) == 0 {
+			log.Error("Error Submitting with NEAR: ", err)
+			return
+		}
+		frameRef = &maybeFrameRef
 	}
-	to, data, err := s.etherman.BuildSequenceBatchesTxData(s.cfg.SenderAddress, sequences, s.cfg.L2Coinbase, maybeFrameRef)
-	log.Warnf("to %s, data: %s", to, common.Bytes2Hex(data))
+
+	// add sequence to be monitored
+	to, data, err := s.etherman.BuildSequenceBatchesTxData(s.cfg.SenderAddress, sequences, s.cfg.L2Coinbase, *frameRef)
 	if err != nil {
 		log.Error("error estimating new sequenceBatches to add to eth tx manager: ", err)
 		return
@@ -138,8 +144,14 @@ func (s *SequenceSender) tryToSendSequence(ctx context.Context, ticker *time.Tic
 	err = s.ethTxManager.Add(ctx, ethTxManagerOwner, monitoredTxID, s.cfg.SenderAddress, to, nil, data, nil)
 
 	if err != nil {
-		log.Error("error to send sequence batches to NEAR: ", err)
+		log.Error("error sending sequence batches to Ethereum: ", err)
+		log.Warn("Adding NEAR DA failed ref", frameRef)
+		// FIXME: hack to have soft retryability - if this is method is single threaded probably fine
+		s.daRecoveredFrameRef = frameRef
 		return
+	} else {
+		log.Debug("sequence batches sent to Ethereum")
+		s.daRecoveredFrameRef = nil
 	}
 }
 
