@@ -42,8 +42,8 @@ import (
 var (
 	updateGlobalExitRootSignatureHash              = crypto.Keccak256Hash([]byte("UpdateGlobalExitRoot(bytes32,bytes32)"))
 	forcedBatchSignatureHash                       = crypto.Keccak256Hash([]byte("ForceBatch(uint64,bytes32,address,bytes)"))
-	sequencedBatchesEventSignatureHash             = crypto.Keccak256Hash([]byte("SequenceBatches(uint64)"))
-	forceSequencedBatchesSignatureHash             = crypto.Keccak256Hash([]byte("SequenceForceBatches(uint64)"))
+	sequencedBatchesEventSignatureHash             = crypto.Keccak256Hash([]byte("SequenceBatches(uint64,bytes)"))
+	forceSequencedBatchesSignatureHash             = crypto.Keccak256Hash([]byte("SequenceForceBatches(uint64,bytes)"))
 	verifyBatchesSignatureHash                     = crypto.Keccak256Hash([]byte("VerifyBatches(uint64,bytes32,address)"))
 	verifyBatchesTrustedAggregatorSignatureHash    = crypto.Keccak256Hash([]byte("VerifyBatchesTrustedAggregator(uint64,bytes32,address)"))
 	setTrustedSequencerURLSignatureHash            = crypto.Keccak256Hash([]byte("SetTrustedSequencerURL(string)"))
