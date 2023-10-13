@@ -33,10 +33,11 @@ type GlobalExitRoot struct {
 type SequencedBatch struct {
 	BatchNumber   uint64
 	SequencerAddr common.Address
-	TxHash        []byte
+	TxHash        common.Hash
 	Nonce         uint64
 	Coinbase      common.Address
 	cdkvalidium.CDKValidiumBatchData
+	DaCommitment []byte
 }
 
 // ForcedBatch represents a ForcedBatch
@@ -62,10 +63,11 @@ type VerifiedBatch struct {
 type SequencedForceBatch struct {
 	BatchNumber uint64
 	Coinbase    common.Address
-	TxHash      []byte 
+	TxHash      common.Hash 
 	Timestamp   time.Time
 	Nonce       uint64
 	cdkvalidium.CDKValidiumForcedBatchData
+	DaCommitment []byte
 }
 
 // ForkID is a sturct to track the ForkID event.

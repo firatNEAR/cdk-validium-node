@@ -947,7 +947,8 @@ func (p *PostgresStorage) GetVirtualBatch(ctx context.Context, batchNumber uint6
 	}
 	virtualBatch.Coinbase = common.HexToAddress(coinbase)
 	virtualBatch.SequencerAddr = common.HexToAddress(sequencerAddr)
-	virtualBatch.TxHash = common.HexToHash(txHash).Bytes()
+	virtualBatch.TxHash = common.HexToHash(txHash)
+	// TODO: maybe we add DA commitment to DB
 	return &virtualBatch, nil
 }
 

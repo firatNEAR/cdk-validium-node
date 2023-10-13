@@ -89,10 +89,11 @@ type VerifiedBatch struct {
 	IsTrusted   bool
 }
 
+// TODO: maybe we store DA Commitment here, too?
 // VirtualBatch represents a VirtualBatch
 type VirtualBatch struct {
 	BatchNumber   uint64
-	TxHash        []byte 
+	TxHash        common.Hash 
 	Coinbase      common.Address
 	SequencerAddr common.Address
 	BlockNumber   uint64
