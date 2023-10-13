@@ -579,14 +579,13 @@ func (etherMan *Client) sequenceBatches(
 		batches = append(batches, batch)
 	}
 
-	// TODO: make sure this contract actually takes a frameRef!
 	tx, err := etherMan.CDKValidium.SequenceBatches(&opts, batches, l2Coinbase, frameRef)
 	if err != nil {
 		if parsedErr, ok := tryParseError(err); ok {
 			err = parsedErr
 		}
 		err = fmt.Errorf(
-			"error sequencing batches: %w, committeeSignaturesAndAddrs %s",
+			"error calling SequenceBatches: %w, NEAR FrameRef %s",
 			err, common.Bytes2Hex(frameRef),
 		)
 	}
@@ -746,11 +745,11 @@ func (etherMan *Client) forcedBatchEvent(ctx context.Context, vLog types.Log, bl
 
 func (etherMan *Client) sequencedBatchesEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
 	log.Debug("SequenceBatches event detected")
-	// FIXME: this will fail since we will have an additional field in the event and that should be emitted by the contract.
 	sb, err := etherMan.CDKValidium.ParseSequenceBatches(vLog)
 	if err != nil {
 		return err
 	}
+	log.Infof("SequencedBatches(%s): NEAR Commitment = %s, NumBatch = %d", sb.Raw.TxHash.String(), common.Bytes2Hex(sb.Commitment), sb.NumBatch)
 	// Read the tx for this event.
 	tx, isPending, err := etherMan.EthClient.TransactionByHash(ctx, vLog.TxHash)
 	if err != nil {
@@ -763,12 +762,12 @@ func (etherMan *Client) sequencedBatchesEvent(ctx context.Context, vLog types.Lo
 		return err
 	}
 
-	var hashToCheck = vLog.TxHash[:]
+	// Check that the commitment is not empty
 	if !reflect.DeepEqual(sb.Commitment, make([]byte, 64)) {
-		// Here is there we differ from L2, we will take the Data from the log emitted by the contract containing our [tx_id ++ commitment].
-		hashToCheck = sb.Commitment
+		// Set the hash to check as the commitment
+		log.Errorf("SequencedBatches(%s): NEAR Commitment = %s, is empty", sb.Raw.TxHash.String(), common.Bytes2Hex(sb.Commitment))
 	}
-	sequences, err := decodeSequences(tx.Data(), sb.NumBatch, msg.From, hashToCheck, msg.Nonce)
+	sequences, err := decodeSequences(tx.Data(), sb.NumBatch, msg.From, vLog.TxHash, msg.Nonce, sb.Commitment)
 	if err != nil {
 		return fmt.Errorf("error decoding the sequences: %v", err)
 	}
@@ -784,7 +783,7 @@ func (etherMan *Client) sequencedBatchesEvent(ctx context.Context, vLog types.Lo
 	} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
 		(*blocks)[len(*blocks)-1].SequencedBatches = append((*blocks)[len(*blocks)-1].SequencedBatches, sequences)
 	} else {
-		log.Error("Error processing SequencedBatches event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
+		log.Error("Error processing SequencedBatches event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber, "NEAR Commitment: ", common.Bytes2Hex(sb.Commitment))
 		return fmt.Errorf("error processing SequencedBatches event")
 	}
 	or := Order{
@@ -795,7 +794,7 @@ func (etherMan *Client) sequencedBatchesEvent(ctx context.Context, vLog types.Lo
 	return nil
 }
 
-func decodeSequences(txData []byte, lastBatchNumber uint64, sequencer common.Address, txHash []byte, nonce uint64) ([]SequencedBatch, error) {
+func decodeSequences(txData []byte, lastBatchNumber uint64, sequencer common.Address, txHash common.Hash, nonce uint64, daCommitment []byte) ([]SequencedBatch, error) {
 	// Extract coded txs.
 	// Load contract ABI
 	abi, err := abi.JSON(strings.NewReader(cdkvalidium.CdkvalidiumABI))
@@ -814,15 +813,18 @@ func decodeSequences(txData []byte, lastBatchNumber uint64, sequencer common.Add
 	if err != nil {
 		return nil, err
 	}
+
 	var sequences []cdkvalidium.CDKValidiumBatchData
 	bytedata, err := json.Marshal(data[0])
 	if err != nil {
 		return nil, err
 	}
+
 	err = json.Unmarshal(bytedata, &sequences)
 	if err != nil {
 		return nil, err
 	}
+
 	coinbase := (data[1]).(common.Address)
 	sequencedBatches := make([]SequencedBatch, len(sequences))
 	for i, seq := range sequences {
@@ -834,6 +836,7 @@ func decodeSequences(txData []byte, lastBatchNumber uint64, sequencer common.Add
 			Nonce:                nonce,
 			Coinbase:             coinbase,
 			CDKValidiumBatchData: seq,
+			DaCommitment:         daCommitment,
 		}
 	}
 
@@ -889,20 +892,22 @@ func (etherMan *Client) forceSequencedBatchesEvent(ctx context.Context, vLog typ
 	} else if isPending {
 		return fmt.Errorf("error: tx is still pending. TxHash: %s", tx.Hash().String())
 	}
+
 	msg, err := core.TransactionToMessage(tx, types.NewLondonSigner(tx.ChainId()), big.NewInt(0))
 	if err != nil {
 		return err
 	}
+
 	fullBlock, err := etherMan.EthClient.BlockByHash(ctx, vLog.BlockHash)
 	if err != nil {
 		return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
 	}
-	var hashToCheck = vLog.TxHash[:]
+
+	// Check that the commitment is not empty
 	if !reflect.DeepEqual(fsb.Commitment, make([]byte, 64)) {
-		// Here is there we differ from L2, we will take the Data from the log emitted by the contract containing our [tx_id ++ commitment].
-		hashToCheck = fsb.Commitment
+		log.Warn("Error processing ForceSequencedBatches event. Commitment is not correct. NEAR Commitment:", fsb.Commitment, "TxHash:", vLog.TxHash)
 	}
-	sequencedForceBatch, err := decodeSequencedForceBatches(tx.Data(), fsb.NumBatch, msg.From, hashToCheck, fullBlock, msg.Nonce)
+	sequencedForceBatch, err := decodeSequencedForceBatches(tx.Data(), fsb.NumBatch, msg.From, vLog.TxHash, fullBlock, msg.Nonce, fsb.Commitment)
 	if err != nil {
 		return err
 	}
@@ -914,7 +919,7 @@ func (etherMan *Client) forceSequencedBatchesEvent(ctx context.Context, vLog typ
 	} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
 		(*blocks)[len(*blocks)-1].SequencedForceBatches = append((*blocks)[len(*blocks)-1].SequencedForceBatches, sequencedForceBatch)
 	} else {
-		log.Error("Error processing ForceSequencedBatches event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
+		log.Error("Error processing ForceSequencedBatches event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber, "NEAR Commitment:", fsb.Commitment, "TxHash:", vLog.TxHash)
 		return fmt.Errorf("error processing ForceSequencedBatches event")
 	}
 	or := Order{
@@ -926,7 +931,7 @@ func (etherMan *Client) forceSequencedBatchesEvent(ctx context.Context, vLog typ
 	return nil
 }
 
-func decodeSequencedForceBatches(txData []byte, lastBatchNumber uint64, sequencer common.Address, txHash []byte, block *types.Block, nonce uint64) ([]SequencedForceBatch, error) {
+func decodeSequencedForceBatches(txData []byte, lastBatchNumber uint64, sequencer common.Address, txHash common.Hash, block *types.Block, nonce uint64, daCommitment []byte) ([]SequencedForceBatch, error) {
 	// Extract coded txs.
 	// Load contract ABI
 	abi, err := abi.JSON(strings.NewReader(cdkvalidium.CdkvalidiumABI))
@@ -966,6 +971,7 @@ func decodeSequencedForceBatches(txData []byte, lastBatchNumber uint64, sequence
 			Timestamp:                  time.Unix(int64(block.Time()), 0),
 			Nonce:                      nonce,
 			CDKValidiumForcedBatchData: force,
+			DaCommitment:               daCommitment,
 		}
 	}
 	return sequencedForcedBatches, nil

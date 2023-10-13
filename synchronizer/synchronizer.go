@@ -816,10 +816,7 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 		return nil
 	}
 	for _, sbatch := range sequencedBatches {
-		// FIXME: this will fail because sbatch isn't right
-		//batchL2Data, err := s.getBatchL2Data(sbatch.BatchNumber, sbatch.TransactionsHash[:])
-		// TODO: might this work instead?
-		batchL2Data, err := s.getBatchL2Data(sbatch.BatchNumber, sbatch.TxHash)
+		batchL2Data, err := s.getBatchL2Data(sbatch.BatchNumber, sbatch.TransactionsHash, sbatch.DaCommitment)
 		if err != nil {
 			return err
 		}

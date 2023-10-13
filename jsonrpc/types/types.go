@@ -346,7 +346,7 @@ type Batch struct {
 	LocalExitRoot       common.Hash         `json:"localExitRoot"`
 	AccInputHash        common.Hash         `json:"accInputHash"`
 	Timestamp           ArgUint64           `json:"timestamp"`
-	SendSequencesTxHash *[]byte             `json:"sendSequencesTxHash"`
+	SendSequencesTxHash *common.Hash        `json:"sendSequencesTxHash"`
 	VerifyBatchTxHash   *common.Hash        `json:"verifyBatchTxHash"`
 	Closed              bool                `json:"closed"`
 	Blocks              []BlockOrHash       `json:"blocks"`
