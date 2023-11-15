@@ -1,4 +1,4 @@
-FROM us-docker.pkg.dev/pagoda-solutions-dev/rollup-data-availability/da-rpc:latest as rust
+FROM ghcr.io/near/rollup-data-availability/da-rpc:latest as rust
 
 RUN ls /lib
 RUN ls /gopkg/da-rpc
@@ -21,8 +21,7 @@ COPY . /src
 WORKDIR /src
 
 # COPY DA RPC
-COPY --from=rust /gopkg/da-rpc /src/da-rpc
-RUN make substitute-workspace
+COPY --from=rust /gopkg/da-rpc/lib/ /usr/local/lib
 
 # BUILD BINARY
 RUN cd db && packr2
@@ -32,7 +31,7 @@ RUN make build
 FROM debian:bookworm-slim
 
 COPY --from=build /src/dist/cdk-validium-node /app/cdk-validium-node
-COPY --from=build /src/da-rpc/lib /usr/local/lib/
+COPY --from=rust /gopkg/da-rpc/lib/ /usr/local/lib
 
 RUN apt-get update && apt-get install -y \
     postgresql-client-15 \

@@ -15,7 +15,7 @@ import (
 	"github.com/0xPolygon/cdk-validium-node/state"
 	"github.com/jackc/pgx/v4"
 
-	near "github.com/near/rollup-data-availability/near-da-rpc"
+	near "github.com/near/rollup-data-availability/gopkg/da-rpc"
 )
 
 const (

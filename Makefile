@@ -121,5 +121,32 @@ help: ## Prints this help
 		| sort \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
-substitute-workspace:
-	sed -i 's|../../gopkg/da-rpc|./da-rpc|g' go.work
+TAG_PREFIX := us-docker.pkg.dev/pagoda-solutions-dev/rollup-data-availability
+IMAGE_TAG := 0.1.0
+COMMAND := docker buildx build -t
+
+cdk-images:
+	# TODO: when we have public images docker pull "$(TAG_PREFIX)/cdk-validium-contracts:$(IMAGE_TAG)"
+	docker pull ghcr.io/dndll/cdk-validium-contracts:latest
+	docker tag ghcr.io/dndll/cdk-validium-contracts:latest "$(TAG_PREFIX)/cdk-validium-contracts:$(IMAGE_TAG)"
+	$(COMMAND) $(TAG_PREFIX)/cdk-validium-node:latest -f Dockerfile .
+	docker tag $(TAG_PREFIX)/cdk-validium-node:latest cdk-validium-node
+	
+cdk-devnet-up:
+	make -C ./test run run-explorer
+.PHONY: cdk-devnet-up
+
+cdk-devnet-down:
+	make -C ./test stop 
+.PHONY: cdk-devnet-up
+
+cdk-node: build
+.PHONY: cdk-node
+
+send-cdk-transfers:
+	cd test/benchmarks/sequencer/scripts/erc20-transfers && go run main.go
+.PHONY: send-cdk-transfers
+
+cdk-devnet-redeploy-test: cdk-images cdk-devnet-up send-cdk-transfers
+.PHONY: cdk-devnet-redeploy-test
+
